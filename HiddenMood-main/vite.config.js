@@ -9,6 +9,7 @@ export default defineConfig({
       targets: [
         { src: 'views', dest: '' }, // Copy `views/` to `dist/views/`
         { src: 'assets', dest: '' }, // Copy `assets/` to `dist/assets/`
+        { src: 'presenters', dest: '' }, // Copy `presenters/` to `dist/presenters/`
       ],
     }),
   ],
