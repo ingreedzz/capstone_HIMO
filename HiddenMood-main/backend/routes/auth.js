@@ -7,7 +7,6 @@ import { generateToken, generateId, validateEmail, validatePassword, validateNam
 
 const router = express.Router();
 
-// Configure multer for image uploads with better error handling
 const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
@@ -24,43 +23,46 @@ const upload = multer({
     }
 });
 
-// User Registration
 router.post("/register", async (req, res) => {
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
-        return res.status(400).json({ error: "All fields are required" });
+        return res.send("Name, email, and password are required");
     }
 
     if (!validateEmail(email)) {
-        return res.status(400).json({ error: "Please enter a valid email address" });
+        return res.send("Please enter a valid email address");
     }
 
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
-        return res.status(400).json({ error: passwordValidation.message });
+        return res.send(passwordValidation.message);
+    }
+
+    if (validateName && !validateName(name)) {
+        return res.send("Please enter a valid name");
     }
 
     try {
-        // Check if user exists
-        const { data: existingUser } = await supabase
+        const { data: existingUser, error: userCheckError } = await supabase
             .from('users')
             .select('email')
             .eq('email', email)
             .single();
 
-        if (existingUser) {
-            return res.status(400).json({ error: "Email is already registered" });
+        if (userCheckError && userCheckError.code !== 'PGRST116') {
+            console.error("User check error:", userCheckError);
+            return res.send("Failed to check existing user");
         }
 
-        // Hash password
-        const passwordHash = await bcrypt.hash(password, 12);
+        if (existingUser) {
+            return res.send("Email is already registered");
+        }
 
-        // Generate user_id
+        const passwordHash = await bcrypt.hash(password, 12);
         const user_id = generateId();
 
-        // Create user
-        const { data: newUser, error } = await supabase
+        const { data: newUser, error: insertError } = await supabase
             .from('users')
             .insert({
                 user_id,
@@ -71,7 +73,10 @@ router.post("/register", async (req, res) => {
             .select('user_id, name, email')
             .single();
 
-        if (error) throw error;
+        if (insertError) {
+            console.error("Insert error:", insertError);
+            return res.send("Failed to register user");
+        }
 
         const token = generateToken(newUser);
 
@@ -81,34 +86,32 @@ router.post("/register", async (req, res) => {
             token
         });
     } catch (error) {
-        console.error("Registration error:", error);
-        res.status(500).json({ error: "Registration failed" });
+        console.error("Registration error:", error.message);
+        res.send("Internal server error during registration");
     }
 });
-
-    
 
 router.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-        return res.status(400).json({ error: "Email and password are required" });
+        return res.send("Email and password are required");
     }
 
     try {
-        const { data: user, error } = await supabase
+        const { data: user, error: fetchError } = await supabase
             .from('users')
             .select('user_id, name, email, password')
             .eq('email', email)
             .single();
 
-        if (error || !user) {
-            return res.status(401).json({ error: "Invalid email or password" });
+        if (fetchError || !user) {
+            return res.send("Invalid email or password");
         }
 
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
-            return res.status(401).json({ error: "Invalid email or password" });
+            return res.send("Invalid email or password");
         }
 
         const token = generateToken(user);
@@ -120,9 +123,13 @@ router.post("/login", async (req, res) => {
             token
         });
     } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ error: "Login failed" });
+        console.error("Login error:", error.message);
+        res.send("Internal server error during login");
     }
+});
+
+router.use((req, res) => {
+    res.send("Route not found");
 });
 
 export default router;

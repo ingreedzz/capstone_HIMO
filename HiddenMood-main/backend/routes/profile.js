@@ -6,12 +6,11 @@ import { authenticateToken } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Configure multer for image uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     console.log("File filter check:", file.mimetype);
@@ -23,7 +22,6 @@ const upload = multer({
   },
 });
 
-// GET /api/profile - Fetch user profile
 router.get("/", authenticateToken, async (req, res) => {
   console.log("GET /api/profile called with user:", req.user.user_id);
   try {
@@ -35,7 +33,7 @@ router.get("/", authenticateToken, async (req, res) => {
 
     if (error || !user) {
       console.error("User fetch error:", error?.message || "No user found");
-      return res.status(404).json({ error: "User not found" });
+      return res.send("User not found");
     }
 
     res.json({
@@ -51,11 +49,10 @@ router.get("/", authenticateToken, async (req, res) => {
       message: error.message,
       stack: error.stack
     });
-    res.status(500).json({ error: "Failed to fetch profile" });
+    res.send("Failed to fetch profile");
   }
 });
 
-// PUT /api/profile - Update user profile
 router.put("/", authenticateToken, upload.single("profileImage"), async (req, res) => {
   console.log("PUT /api/profile called for user:", req.user.user_id);
   try {
@@ -67,7 +64,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
 
     if (userError || !user) {
       console.error("User fetch error:", userError?.message || "No user found");
-      return res.status(404).json({ error: "User not found" });
+      return res.send("User not found");
     }
 
     const updates = {};
@@ -79,17 +76,17 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
     if (req.body.newPassword && req.body.currentPassword) {
       const isValidPassword = await bcrypt.compare(req.body.currentPassword, user.password);
       if (!isValidPassword) {
-        return res.status(400).json({ error: "Invalid current password" });
+        return res.send("Invalid current password");
       }
 
       const passwordValidation = validatePassword(req.body.newPassword);
       if (!passwordValidation.isValid) {
-        return res.status(400).json({ error: passwordValidation.message });
+        return res.send(passwordValidation.message);
       }
 
       const isSamePassword = await bcrypt.compare(req.body.newPassword, user.password);
       if (isSamePassword) {
-        return res.status(400).json({ error: "New password cannot be the same as the current password" });
+        return res.send("New password cannot be the same as the current password");
       }
 
       const passwordHash = await bcrypt.hash(req.body.newPassword, 12);
@@ -99,7 +96,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
     if (req.file) {
       try {
         if (req.file.size > 5 * 1024 * 1024) {
-          return res.status(400).json({ error: "Image size too large (max 5MB)" });
+          return res.send("Image size too large (max 5MB)");
         }
 
         const fileName = `profile-${req.user.user_id}-${Date.now()}.${req.file.mimetype.split("/")[1]}`;
@@ -113,7 +110,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
 
         if (uploadError) {
           console.error("Image upload error:", uploadError.message);
-          return res.status(500).json({ error: "Failed to upload image" });
+          return res.send("Failed to upload image");
         }
 
         const { data: urlData } = supabase.storage
@@ -136,7 +133,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
         console.log(`Image uploaded: ${req.file.mimetype}, size: ${req.file.size} bytes, URL: ${updates.img}`);
       } catch (error) {
         console.error("Image processing error:", error.message);
-        return res.status(500).json({ error: "Failed to process image" });
+        return res.send("Failed to process image");
       }
     }
 
@@ -149,7 +146,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
 
     if (updateError) {
       console.error("Update error:", updateError.message);
-      return res.status(500).json({ error: "Failed to update profile" });
+      return res.send("Failed to update profile");
     }
 
     res.json({
@@ -163,18 +160,16 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
     });
   } catch (err) {
     console.error("Update profile error:", {
-      message: error.message,
-      stack: error.stack
+      message: err.message,
+      stack: err.stack
     });
-    res.status(500).json({ error: "Failed to update profile" });
+    res.send("Failed to update profile");
   }
 });
 
-// DELETE /api/profile - Delete user account
 router.delete("/", authenticateToken, async (req, res) => {
   console.log("=== DELETE /api/profile called for user:", req.user.user_id);
   try {
-    // Verify user exists
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("user_id, img")
@@ -188,17 +183,16 @@ router.delete("/", authenticateToken, async (req, res) => {
         code: userError?.code,
         hint: userError?.hint
       });
-      return res.status(404).json({ error: "User not found" });
+      return res.send("User not found");
     }
 
     console.log("User found:", user.user_id);
 
-    // Delete history records
     const { data: historyData, error: historyError } = await supabase
       .from("history")
       .delete()
       .eq("user_id", req.user.user_id)
-      .select("history_id"); // Return deleted record IDs for logging
+      .select("history_id");
 
     if (historyError) {
       console.error("History delete error:", {
@@ -207,15 +201,11 @@ router.delete("/", authenticateToken, async (req, res) => {
         code: historyError.code,
         hint: historyError.hint
       });
-      return res.status(500).json({
-        error: "Failed to delete history data",
-        details: historyError.message
-      });
+      return res.send("Failed to delete history data");
     }
 
     console.log("History records deleted:", historyData?.length || 0);
 
-    // Delete profile image from storage
     if (user.img && user.img.includes('profile-img/')) {
       try {
         const fileName = user.img.split('/').pop();
@@ -242,7 +232,6 @@ router.delete("/", authenticateToken, async (req, res) => {
       }
     }
 
-    // Delete user
     const { data: userData, error: userDeleteError } = await supabase
       .from("users")
       .delete()
@@ -257,19 +246,16 @@ router.delete("/", authenticateToken, async (req, res) => {
         code: userDeleteError.code,
         hint: userDeleteError.hint
       });
-      return res.status(500).json({
-        error: "Failed to delete user account",
-        details: userDeleteError.message
-      });
+      return res.send("Failed to delete user account");
     }
 
     if (!userData) {
       console.warn("No user found with user_id:", req.user.user_id);
-      return res.status(404).json({ error: "User account not found" });
+      return res.send("User account not found");
     }
 
     console.log("Account deleted successfully for user:", req.user.user_id);
-    return res.status(200).json({ message: "Account deleted successfully" });
+    return res.json({ message: "Account deleted successfully" });
   } catch (error) {
     console.error("Delete account error:", {
       message: error.message,
@@ -278,10 +264,7 @@ router.delete("/", authenticateToken, async (req, res) => {
       hint: error.hint,
       stack: error.stack
     });
-    return res.status(500).json({
-      error: "Failed to delete account",
-      details: error.message || "Unexpected server error"
-    });
+    return res.send("Failed to delete account");
   }
 });
 
@@ -299,5 +282,9 @@ function validatePassword(password) {
   }
   return { isValid: true, message: "" };
 }
+
+router.use((req, res) => {
+  res.send("Route not found");
+});
 
 export default router;
