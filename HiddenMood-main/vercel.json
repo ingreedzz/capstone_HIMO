@@ -12,6 +12,8 @@
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "backend/server.js" },
+    { "src": "/views/(.*)", "dest": "/views/$1" },
+    { "src": "/presenters/(.*)", "dest": "/presenters/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
