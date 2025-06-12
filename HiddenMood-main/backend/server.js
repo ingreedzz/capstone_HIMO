@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? 'https://capstone-himo.vercel.app' // Replace with your Vercel frontend URL
-    : 'http://localhost:3000', // For local development
+    : ['http://localhost:3000', 'http://localhost:4173'], // Allow both development origins
   credentials: true
 }));
 app.use(express.json());
