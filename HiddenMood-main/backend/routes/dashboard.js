@@ -27,6 +27,7 @@ router.get("/summary", authenticateToken, async (req, res) => {
         latestEmotion: '',
         latestEmotionTime: null,
         weeklyCount: 0,
+        weeklyAverageStress: 0, 
         totalCount: 0,
         mostCommonEmotion: '',
         mostCommonStressLevel: '',
@@ -57,7 +58,12 @@ router.get("/summary", authenticateToken, async (req, res) => {
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
-    const weeklyCount = history.filter(h => new Date(h.created_at) >= weekAgo).length;
+    const weeklyEntries = history.filter(h => new Date(h.created_at) >= weekAgo);
+    const weeklyCount = weeklyEntries.length;
+    
+    const weeklyValidStressEntries = weeklyEntries.filter(h => h.stress_percent !== null && h.stress_percent !== undefined);
+    const weeklyTotalStress = weeklyValidStressEntries.reduce((sum, h) => sum + h.stress_percent, 0);
+    const weeklyAverageStress = weeklyValidStressEntries.length > 0 ? Math.round(weeklyTotalStress / weeklyValidStressEntries.length) : 0;
 
     const mostCommonEmotion = Object.keys(emotionCounts).length > 0 
       ? Object.keys(emotionCounts).reduce((a, b) => emotionCounts[a] > emotionCounts[b] ? a : b)
@@ -128,6 +134,7 @@ router.get("/summary", authenticateToken, async (req, res) => {
       latestEmotion,
       latestEmotionTime,
       weeklyCount,
+      weeklyAverageStress, 
       totalCount: history.length,
       mostCommonEmotion,
       mostCommonStressLevel,
