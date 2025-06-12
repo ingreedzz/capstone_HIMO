@@ -79,7 +79,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
     if (req.body.newPassword && req.body.currentPassword) {
       const isValidPassword = await bcrypt.compare(req.body.currentPassword, user.password);
       if (!isValidPassword) {
-        return res.send("Invalid current password");
+        return res.status(400).json({ error: "Invalid current password" });
       }
 
       const passwordValidation = validatePassword(req.body.newPassword);
@@ -89,7 +89,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
 
       const isSamePassword = await bcrypt.compare(req.body.newPassword, user.password);
       if (isSamePassword) {
-        return res.send("New password cannot be the same as the current password");
+        return res.status(400).json({ error: "New password cannot be the same as the current password" });
       }
 
       const passwordHash = await bcrypt.hash(req.body.newPassword, 12);
@@ -99,7 +99,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
     if (req.file) {
       try {
         if (req.file.size > 5 * 1024 * 1024) {
-          return res.send("Image size too large (max 5MB)");
+          return res.status(400).json({ error: "Image size too large (max 5MB)" });
         }
 
         const fileName = `profile-${req.user.user_id}-${Date.now()}.${req.file.mimetype.split("/")[1]}`;
@@ -113,7 +113,7 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
 
         if (uploadError) {
           console.error("Image upload error:", uploadError.message);
-          return res.send("Failed to upload image");
+          return res.status(500).json({ error: "Failed to upload image" });
         }
 
         const { data: urlData } = supabase.storage
@@ -166,14 +166,15 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
       message: error.message,
       stack: error.stack
     });
-    
     res.status(500).json({ error: "Failed to update profile" });
   }
 });
 
+// DELETE /api/profile - Delete user account
 router.delete("/", authenticateToken, async (req, res) => {
-  console.log(" DELETE /api/profile called for user:", req.user.user_id);
+  console.log("=== DELETE /api/profile called for user:", req.user.user_id);
   try {
+    // Verify user exists
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("user_id, img")
@@ -187,7 +188,7 @@ router.delete("/", authenticateToken, async (req, res) => {
         code: userError?.code,
         hint: userError?.hint
       });
-      return res.send("User not found");
+      return res.status(404).json({ error: "User not found" });
     }
 
     console.log("User found:", user.user_id);
@@ -264,7 +265,7 @@ router.delete("/", authenticateToken, async (req, res) => {
 
     if (!userData) {
       console.warn("No user found with user_id:", req.user.user_id);
-      return res.send("User account not found");
+      return res.status(404).json({ error: "User account not found" });
     }
 
     console.log("Account deleted successfully for user:", req.user.user_id);

@@ -29,11 +29,11 @@ router.post("/register", async (req, res) => {
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
-    return res.send("All fields are required");
+        return res.status(400).json({ error: "All fields are required" });
     }
 
     if (!validateEmail(email)) {
-        return res.send("Please enter a valid email address");
+        return res.status(400).json({ error: "Please enter a valid email address" });
     }
 
     const passwordValidation = validatePassword(password);
@@ -50,13 +50,16 @@ router.post("/register", async (req, res) => {
             .single();
 
         if (existingUser) {
-            return res.send("Email is already registered");
+            return res.status(400).json({ error: "Email is already registered" });
         }
 
+        // Hash password
         const passwordHash = await bcrypt.hash(password, 12);
 
+        // Generate user_id
         const user_id = generateId();
 
+        // Create user
         const { data: newUser, error } = await supabase
             .from('users')
             .insert({
@@ -79,7 +82,7 @@ router.post("/register", async (req, res) => {
         });
     } catch (error) {
         console.error("Registration error:", error);
-        return res.send("Registration failed");
+        res.status(500).json({ error: "Registration failed" });
     }
 });
 
