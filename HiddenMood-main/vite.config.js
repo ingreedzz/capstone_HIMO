@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig({
-  base: './',
+  base: './', // Use relative paths for assets
   plugins: [
     viteStaticCopy({
       targets: [
@@ -17,10 +17,10 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
+        main: resolve(__dirname, 'index.html'), // Ensure this points to your main HTML file
       },
       output: {
-        assetFileNames: 'assets/[name].[ext]',
+        assetFileNames: 'assets/[name].[ext]', // Ensure assets are placed in the correct folder
       },
     },
   },
