@@ -10,7 +10,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024, // 5MB
   },
   fileFilter: (req, file, cb) => {
     console.log("File filter check:", file.mimetype);
@@ -22,9 +22,33 @@ const upload = multer({
   },
 });
 
-// Replace your existing PUT route with this fixed version
-router.put("/", authenticateToken, upload.single("profileImage"), async (req, res) => {
+// Add multer error handling middleware right after upload config
+const handleMulterError = (error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    console.error("Multer error:", error);
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
+    }
+    return res.status(400).json({ error: error.message });
+  }
+  
+  if (error && error.message === 'Only image files are allowed') {
+    return res.status(400).json({ error: 'Only image files are allowed' });
+  }
+  
+  next(error);
+};
+
+// PUT route with better error handling
+router.put("/", authenticateToken, upload.single("profileImage"), handleMulterError, async (req, res) => {
   console.log("PUT /api/profile called for user:", req.user.user_id);
+  console.log("Request body:", req.body);
+  console.log("File received:", req.file ? { 
+    originalname: req.file.originalname, 
+    mimetype: req.file.mimetype, 
+    size: req.file.size 
+  } : 'No file');
+
   try {
     const { data: user, error: userError } = await supabase
       .from("users")
@@ -39,10 +63,12 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
 
     const updates = {};
 
+    // Handle name update
     if (req.body.name) {
       updates.name = req.body.name;
     }
 
+    // Handle password update
     if (req.body.newPassword && req.body.currentPassword) {
       const isValidPassword = await bcrypt.compare(req.body.currentPassword, user.password);
       if (!isValidPassword) {
@@ -63,14 +89,18 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
       updates.password = passwordHash;
     }
 
+    // Handle image upload
     if (req.file) {
       try {
-        if (req.file.size > 5 * 1024 * 1024) {
-          return res.status(400).json({ error: "Image size too large (max 5MB)" });
-        }
-
-        const fileName = `profile-${req.user.user_id}-${Date.now()}.${req.file.mimetype.split("/")[1]}`;
+        console.log("Processing image upload...");
         
+        // Generate unique filename
+        const fileExtension = req.file.mimetype.split("/")[1];
+        const fileName = `profile-${req.user.user_id}-${Date.now()}.${fileExtension}`;
+        
+        console.log("Uploading to Supabase storage:", fileName);
+
+        // Upload to Supabase storage
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from("profile-img")
           .upload(fileName, req.file.buffer, {
@@ -79,35 +109,59 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
           });
 
         if (uploadError) {
-          console.error("Image upload error:", uploadError.message);
-          return res.status(500).json({ error: "Failed to upload image", details: uploadError.message });
+          console.error("Supabase upload error:", uploadError);
+          return res.status(500).json({ 
+            error: "Failed to upload image to storage", 
+            details: uploadError.message 
+          });
         }
 
+        console.log("Upload successful:", uploadData);
+
+        // Get public URL
         const { data: urlData } = supabase.storage
           .from("profile-img")
           .getPublicUrl(fileName);
 
+        if (!urlData || !urlData.publicUrl) {
+          console.error("Failed to get public URL");
+          return res.status(500).json({ error: "Failed to get image URL" });
+        }
+
         updates.img = urlData.publicUrl;
+        console.log("Image URL generated:", updates.img);
 
         // Clean up old image
         if (user.img && user.img.includes('profile-img/')) {
           try {
             const oldFileName = user.img.split('/').pop();
-            if (oldFileName) {
-              await supabase.storage.from("profile-img").remove([oldFileName]);
+            if (oldFileName && oldFileName !== fileName) {
+              const { error: deleteError } = await supabase.storage
+                .from("profile-img")
+                .remove([oldFileName]);
+              
+              if (deleteError) {
+                console.warn("Failed to delete old image:", deleteError.message);
+              } else {
+                console.log("Old image deleted:", oldFileName);
+              }
             }
-          } catch (err) {
-            console.warn("Failed to clean up old image:", err.message);
+          } catch (cleanupError) {
+            console.warn("Cleanup error:", cleanupError.message);
           }
         }
 
-        console.log(`Image uploaded: ${req.file.mimetype}, size: ${req.file.size} bytes, URL: ${updates.img}`);
-      } catch (error) {
-        console.error("Image processing error:", error.message);
-        return res.status(500).json({ error: "Failed to process image", details: error.message });
+      } catch (imageError) {
+        console.error("Image processing error:", imageError);
+        return res.status(500).json({ 
+          error: "Failed to process image", 
+          details: imageError.message 
+        });
       }
     }
 
+    // Update user in database
+    console.log("Updating user with:", updates);
     const { data: updatedUser, error: updateError } = await supabase
       .from("users")
       .update(updates)
@@ -116,9 +170,14 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
       .single();
 
     if (updateError) {
-      console.error("Update error:", updateError.message);
-      return res.status(500).json({ error: "Failed to update profile", details: updateError.message });
+      console.error("Database update error:", updateError);
+      return res.status(500).json({ 
+        error: "Failed to update profile in database", 
+        details: updateError.message 
+      });
     }
+
+    console.log("Profile updated successfully:", updatedUser);
 
     res.json({
       message: "User profile updated successfully",
@@ -129,14 +188,18 @@ router.put("/", authenticateToken, upload.single("profileImage"), async (req, re
         img: updatedUser.img || null,
       },
     });
+
   } catch (err) {
-    console.error("Update profile error:", {
+    console.error("Unexpected error in PUT /api/profile:", {
       message: err.message,
-      stack: err.stack
+      stack: err.stack,
+      name: err.name
     });
-    res.status(500).json({ error: "Failed to update profile", details: err.message });
+    res.status(500).json({ 
+      error: "Internal server error", 
+      details: process.env.NODE_ENV === 'development' ? err.message : 'Please try again later'
+    });
   }
-});
 
 // Also fix the GET and DELETE routes
 router.get("/", authenticateToken, async (req, res) => {
@@ -258,5 +321,20 @@ router.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+function validatePassword(password) {
+  const minLength = 8;
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+  if (password.length < minLength || !(hasLetter && hasNumber && hasSymbol)) {
+    return {
+      isValid: false,
+      message: "Password must be at least 8 characters long and include a mix of letters, numbers, and symbols.",
+    };
+  }
+  return { isValid: true, message: "" };
+}
 
 export default router;
