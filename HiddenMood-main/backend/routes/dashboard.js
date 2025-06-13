@@ -242,7 +242,52 @@ async function loadDashboardSummary() {
   }
 }
 
-// Add debug logging to initializeDashboard
+router.get("/weekly-stats", authenticateToken, async (req, res) => {
+  try {
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const { data: weeklyHistory, error } = await supabase
+      .from('history')
+      .select('stress_percent, stress_level')
+      .eq('user_id', req.user.user_id)
+      .gte('created_at', weekAgo.toISOString());
+
+    if (error) throw error;
+
+    if (weeklyHistory.length === 0) {
+      return res.json({
+        weeklyAverageStress: 0,
+        weeklyStressLevel: '-',
+        weeklyCount: 0
+      });
+    }
+
+    // Calculate weekly average stress
+    const validStressEntries = weeklyHistory.filter(h => h.stress_percent !== null && h.stress_percent !== undefined);
+    const totalStress = validStressEntries.reduce((sum, h) => sum + h.stress_percent, 0);
+    const weeklyAverageStress = validStressEntries.length > 0 ? Math.round(totalStress / validStressEntries.length) : 0;
+
+    // Determine stress level based on average
+    let weeklyStressLevel = 'Low';
+    if (weeklyAverageStress >= 70) {
+      weeklyStressLevel = 'High';
+    } else if (weeklyAverageStress >= 40) {
+      weeklyStressLevel = 'Medium';
+    }
+
+    res.json({
+      weeklyAverageStress,
+      weeklyStressLevel,
+      weeklyCount: weeklyHistory.length
+    });
+
+  } catch (error) {
+    console.error("Error fetching weekly stats:", error);
+    res.status(500).json({ error: "Failed to fetch weekly stats" });
+  }
+});
+
 async function initializeDashboard() {
   try {
     console.log('Initializing dashboard...');
